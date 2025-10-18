@@ -1,0 +1,19 @@
+{
+  "name": "SPAM PAIRING BY HAZEL",
+  "version": "2.0.0",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "keywords": [],
+  "author": "Hazel",
+  "license": "MIT",
+  "description": "",
+  "dependencies": {
+    "@hapi/boom": "latest",
+    "@whiskeysockets/baileys": "latest",
+    "clear-console": "latest",
+    "pino": "latest",
+    "qrcode-terminal": "latest"
+  }
+}
